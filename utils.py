@@ -313,25 +313,70 @@ def get_dataloaders(dataset,batch_size, word_to_id = None, word_level = False, n
 
     else:
         if dataset in ['fake-news']:
-            train = pd.read_csv('fake-news/train.csv')
+            train = pd.read_csv('fake-news/train.csv').dropna(subset=['text','label']).reset_index(drop=True)
             test = pd.read_csv('fake-news/test.csv')
             train_set = []
             test_set = []
             valid_set = []
-            for i in range(len(train)-1000):
-                train_set.append({'text':train['text'].iloc[i], 'label':train['label'].iloc[i]})
+            for i in range(len(train)-1000-valid_size):
+                train_set.append({
+                    'text': str(train['text'].iloc[i]),
+                    'label': int(train['label'].iloc[i])})
+
+            for i in range(valid_size):
+                valid_set.append({
+                    'text': str(train['text'].iloc[-(1000 + i + 1)]),
+                    'label': int(train['label'].iloc[-(1000 + i + 1)])})
+
             for i in range(1000):
-                test_set.append({'text':train['text'].iloc[-i], 'label':train['label'].iloc[-i]})
-        elif dataset in ['ag_news', 'imdb']:
+                test_set.append({
+                    'text': str(train['text'].iloc[-(i + 1)]),
+                    'label': int(train['label'].iloc[-(i + 1)])})
+        elif dataset == 'ag_news':
             dataset_dict = datasets.load_dataset(dataset)
             test_set = dataset_dict['test']
             valid_set = []
             train_set = []
-            #TODO fix the validation set ordering for imdb as it is ordered by label
             for i in range(valid_size):
                 valid_set.append({'text':dataset_dict['train'][-i]['text'], 'label':dataset_dict['train'][-i]['label']})
             for i in range(len(dataset_dict['train'])-valid_size):
                 train_set.append({'text':dataset_dict['train'][i]['text'], 'label':dataset_dict['train'][i]['label']})
+        elif dataset == 'imdb':
+            dataset_dict = datasets.load_dataset(dataset)
+
+            rng = np.random.RandomState(42)
+
+            # Shuffle test split too, because IMDB test is ordered by label
+            test_indices = list(range(len(dataset_dict['test'])))
+            rng.shuffle(test_indices)
+            test_set = [
+                {
+                    'text': dataset_dict['test'][idx]['text'],
+                    'label': dataset_dict['test'][idx]['label']
+                }
+                for idx in test_indices
+            ]
+
+            valid_set = []
+            train_set = []
+
+            train_indices = list(range(len(dataset_dict['train'])))
+            rng.shuffle(train_indices)
+
+            for i in range(valid_size):
+                idx = train_indices[i]
+                valid_set.append({
+                    'text': dataset_dict['train'][idx]['text'],
+                    'label': dataset_dict['train'][idx]['label']
+                })
+
+            for i in range(valid_size, len(dataset_dict['train'])):
+                idx = train_indices[i]
+                train_set.append({
+                    'text': dataset_dict['train'][idx]['text'],
+                    'label': dataset_dict['train'][idx]['label']
+                })
+                
         elif dataset in ['sst2', 'cola']:
             dataset_dict = datasets.load_dataset("glue", dataset)
             test_set = dataset_dict['validation']

@@ -14,6 +14,14 @@ if __name__ == '__main__':
     parser.add_argument('--n_classes', default=4, type=int, help='number of classes')
     parser.add_argument('--model_path', default='results/example_ag_news/weights_last.pt', type=str, help='default model weights')
     parser.add_argument('--n_samples', default=-1, type=int, help='number of samples to consider')
+    parser.add_argument('--suffix', default='', type=str,
+                    help='suffix added to output csv names')
+    parser.add_argument(
+    '--method',
+    default='all',
+    choices=['all', 'ours', 'lipslev', 'charmer', 'bf', 'ibp', 'rsdel'],
+    help='verification method'
+)
 
     args = parser.parse_args()
 
@@ -42,7 +50,11 @@ if __name__ == '__main__':
     else:
         key = 'text'
     
-    net = torch.load(args.model_path, map_location=device)
+    net = torch.load(args.model_path, map_location=device, weights_only=False)
+
+    if hasattr(net, "char_to_id"):
+        char_to_id = net.char_to_id
+
     if not hasattr(net,'lips_act'):
         net.lips_act = 1
 
@@ -52,44 +64,62 @@ if __name__ == '__main__':
 
     if args.dataset != 'numbers_letters':
         if args.n_samples == -1:
-            l = len(test_loader.dataset[key])
+            l = len(test_loader.dataset)
         else:
-            l = args.n_samples
-        if args.dataset == 'fake-news':
-            cut_dataset = [{key: str(train_loader.dataset[-i][key])[:1000] if len(str(train_loader.dataset[-i][key]))>1000 else str(train_loader.dataset[-i][key]) , 'label': train_loader.dataset[-i]['label']} for i in range(l)]
-        else:
-            cut_dataset = [{key: test_loader.dataset[key][i][:1000] if len(test_loader.dataset[key][i])>1000 else test_loader.dataset[key][i], 'label': test_loader.dataset['label'][i]} for i in range(l)]
+            l = min(args.n_samples, len(test_loader.dataset))
+
+        cut_dataset = [
+            {
+                key: str(test_loader.dataset[i][key])[:1000],
+                'label': test_loader.dataset[i]['label']
+            }
+            for i in range(l)
+        ]
     else:
         char_to_id = net.char_to_id
         cut_dataset = test_loader.dataset
 
-    if os.path.isfile(os.path.join(out_folder, '_results_bruteforce.csv')):
-        df = pd.read_csv(os.path.join(out_folder, '_results_bruteforce.csv'))
-        if len(df)< args.n_samples:
-            print('bf',verified_acc_bruteforce(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif, resume=True))
-    else:
-        print('bf',verified_acc_bruteforce(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif))
-    
-    if os.path.isfile(os.path.join(out_folder, '_results_ibp.csv')):
-        df = pd.read_csv(os.path.join(out_folder, '_results_ibp.csv'))
-        if len(df)< args.n_samples:
-            print('ibp',verified_acc_ibp(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif, resume=True))
-    else:
-        print('ibp',verified_acc_ibp(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif))
+    output_name = args.suffix
 
-    if os.path.isfile(os.path.join(out_folder, '_results_charmer.csv')):
-        df = pd.read_csv(os.path.join(out_folder, '_results_charmer.csv'))
-        if len(df)< args.n_samples:
-            print('charmer',attack_charmer(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif, resume=True))
-    else:
-        print('charmer',attack_charmer(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif))
+    if args.method in ['all', 'bf']:
+        path = os.path.join(out_folder, f'{output_name}_results_bruteforce.csv')
+        if os.path.isfile(path):
+            df = pd.read_csv(path)
+            if len(df) < args.n_samples:
+                print('bf', verified_acc_bruteforce(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif, resume=True))
+        else:
+            print('bf', verified_acc_bruteforce(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif))
 
-    if os.path.isfile(os.path.join(out_folder, '_results_rsdel.csv')):
-        df = pd.read_csv(os.path.join(out_folder, '_results_rsdel.csv'))
-        if len(df)< args.n_samples:
-            print('rsdel',verify_rsdel(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif, resume=True))
-    else:
-        print('rsdel',verify_rsdel(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif))
+    if args.method in ['all', 'ibp']:
+        path = os.path.join(out_folder, f'{output_name}_results_ibp.csv')
+        if os.path.isfile(path):
+            df = pd.read_csv(path)
+            if len(df) < args.n_samples:
+                print('ibp', verified_acc_ibp(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif, resume=True))
+        else:
+            print('ibp', verified_acc_ibp(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif))
 
-    #No need to resume ours!
-    print('ours',verify(net, char_to_id, cut_dataset, device, output_folder = out_folder,pad = pad_verif))
+    if args.method in ['all', 'charmer']:
+        path = os.path.join(out_folder, f'{output_name}_results_charmer.csv')
+        if os.path.isfile(path):
+            df = pd.read_csv(path)
+            if len(df) < args.n_samples:
+                print('charmer', attack_charmer(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif, resume=True))
+        else:
+            print('charmer', attack_charmer(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif))
+
+    if args.method in ['all', 'rsdel']:
+        path = os.path.join(out_folder, f'{output_name}_results_rsdel.csv')
+        if os.path.isfile(path):
+            df = pd.read_csv(path)
+            if len(df) < args.n_samples:
+                print('rsdel', verify_rsdel(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif, resume=True))
+        else:
+            print('rsdel', verify_rsdel(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif))
+
+    if args.method in ['all', 'ours', 'lipslev']:
+        path = os.path.join(out_folder, f'{output_name}_results_lipslev.csv')
+        if os.path.isfile(path) and len(pd.read_csv(path)) >= len(cut_dataset):
+            print('ours skipped existing', path)
+        else:
+            print('ours', verify(net, char_to_id, cut_dataset, device, output_folder=out_folder, output_name=output_name, pad=pad_verif))
